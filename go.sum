@@ -1,0 +1,9 @@
+github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
+github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
+github.com/robfig/cron/v3 v3.0.1 h1:WdRxkvbJztn8LMz/QEvLN5sBU+xKpSqwwUO1Pjr4qDs=
+github.com/robfig/cron/v3 v3.0.1/go.mod h1:eQICP3HwyT7UooqI/z+Ov+PtYAWygg1TEWWzGIFLtro=
+github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.1.10/go.mod h1:r5r4xbfxSaeR04b166HGsBa/R4U3SueirEUpXGuw+Q0=
+github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.1.13 h1:xQc87gs85w3Rj7rhT83YvoLpVRzsmUHNmm05ti6cVKI=
+github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.1.13/go.mod h1:r5r4xbfxSaeR04b166HGsBa/R4U3SueirEUpXGuw+Q0=
+github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/dnspod v1.1.10 h1:OvH3MasOffT6el+X5RyMwHBoNbKTXx9UUlSLA72kz0E=
+github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/dnspod v1.1.10/go.mod h1:q5I3rBG2brb5BW0pFvr/6fD2E4uYgDP0GThDLUvm85Q=
