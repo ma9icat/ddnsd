@@ -25,7 +25,7 @@ WORKDIR /app/
 COPY --from=builder /app/ddnsd .
 
 # 复制环境变量文件
-COPY .env /app/.env
+# COPY .env /app/.env
 
 # 运行二进制文件
 CMD ["/app/ddnsd"]

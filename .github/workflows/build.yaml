@@ -1,0 +1,201 @@
+name: Build, Release & Docker Image
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*.*.*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    strategy:
+      matrix:
+        arch: [ amd64, arm64 ]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.25.x"
+
+    - name: Install dependencies
+      run: |
+        go mod tidy
+        go mod verify
+
+    - name: Run tests
+      run: |
+        go test -v -race ./...
+        go test -json ./... > test-results-${{ github.ref_name }}.json
+
+    - name: Build project
+      run: |
+        PROJECT_NAME="ddnsd"
+        VERSION="${{ github.ref_name }}"
+        OS="linux"
+        ARCH="${{ matrix.arch }}"
+        OUTPUT_PATH="./dist/${PROJECT_NAME}-${VERSION}-${OS}-${ARCH}"
+
+        mkdir -p ./dist
+        GOOS=${OS} GOARCH=${ARCH} go build -v -o "${OUTPUT_PATH}" \
+        -ldflags "-X main.version=${VERSION} -X main.commit=${{ github.sha }} -X main.buildTime=$(date +%Y-%m-%dT%H:%M:%SZ)" .
+
+        if [ -f "${OUTPUT_PATH}" ]; then
+          echo "Build success! Output: ${OUTPUT_PATH}"
+          ls -l ./dist/
+        else
+          echo "Build failed! No output file found."
+          exit 1
+        fi
+
+    - name: Upload binary artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ddnsd-${{ github.ref_name }}-${{ matrix.arch }}
+        path: ./dist/*
+        retention-days: 1
+
+  upload-release:
+    runs-on: ubuntu-latest
+    needs: build-release
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Create dist directory
+      run: mkdir -p ./dist
+
+    - name: Download amd64 binaries
+      uses: actions/download-artifact@v4
+      with:
+        name: ddnsd-${{ github.ref_name }}-amd64
+        path: ./dist
+
+    - name: Download arm64 binaries
+      uses: actions/download-artifact@v4
+      with:
+        name: ddnsd-${{ github.ref_name }}-arm64
+        path: ./dist
+
+    - name: Create and upload Release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PROJECT_NAME="ddnsd"
+        VERSION="${{ github.ref_name }}"
+        SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+        OS="linux"
+
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          gh release create "${VERSION}" \
+            --title "Release ${VERSION}" \
+            --notes "Auto-generated release for version ${VERSION}\nBuilt from commit: ${{ github.sha }}\nBuild time: $(date +%Y-%m-%dT%H:%M:%SZ)" \
+            --generate-notes
+          RELEASE_VERSION="${VERSION}"
+        else
+          RELEASE_VERSION="pre-${VERSION}-${SHORT_SHA}"
+          if gh release view "${RELEASE_VERSION}" &> /dev/null; then
+            gh release delete "${RELEASE_VERSION}" --yes
+          fi
+          gh release create "${RELEASE_VERSION}" \
+            --title "Pre-Release (main) - ${SHORT_SHA}" \
+            --notes "Auto-generated release for version ${VERSION}\nBuilt from commit: ${{ github.sha }}\nBuild time: $(date +%Y-%m-%dT%H:%M:%SZ)\n⚠️ This is a pre-release from main branch." \
+            --prerelease
+        fi
+
+        for ARCH in amd64 arm64; do
+          ARTIFACT_PATH="./dist/${PROJECT_NAME}-${VERSION}-${OS}-${ARCH}"
+          if [ -f "${ARTIFACT_PATH}" ]; then
+            echo "Uploading ${ARTIFACT_PATH} to release ${RELEASE_VERSION}"
+            gh release upload "${RELEASE_VERSION}" "${ARTIFACT_PATH}" --clobber
+          else
+            echo "Error: Artifact not found at ${ARTIFACT_PATH}"
+            exit 1
+          fi
+        done
+
+  build-docker-image:
+    runs-on: ubuntu-latest
+    needs: build-release
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.25.x"
+        cache-dependency-path: "go.sum"
+
+    - name: Extract metadata for Docker
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ghcr.io/${{ github.repository_owner }}/ddnsd
+        tags: |
+          type=ref,event=branch
+          type=semver,pattern={{version}},event=tag
+          type=semver,pattern={{major}}.{{minor}},event=tag
+          type=sha,format=short,event=push
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GitHub Container Registry
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64, linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          VERSION=${{ github.ref_name }}
+          COMMIT=${{ github.sha }}
+          BUILD_TIME=${{ github.event.repository.pushed_at || github.event.head_commit.timestamp }}
+
+    - name: Show Docker image information
+      run: |
+        echo "Built Docker image tags:"
+        echo "${{ steps.meta.outputs.tags }}"
+
+        if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+          echo -e "\nRemote image details:"
+          echo "${{ steps.meta.outputs.tags }}" | tr ' ' '\n' | while read -r tag; do
+            echo -e "\nTag: $tag"
+            docker manifest inspect "$tag" || true
+          done
+        else
+          echo -e "\nLocally built images (PR preview):"
+          docker images | grep "ghcr.io/${{ github.repository_owner }}/ddnsd"
+        fi
