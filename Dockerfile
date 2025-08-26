@@ -1,5 +1,7 @@
 FROM golang:1.25-alpine AS builder
 
+LABEL org.opencontainers.image.description "DDNSD (Dynamic DNS Daemon) is a lightweight service that automatically updates DNS records for domains with dynamic IP addresses."
+
 WORKDIR /app
 
 # 复制go mod和sum文件
